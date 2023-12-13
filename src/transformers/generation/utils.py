@@ -13,7 +13,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import time
+import tracemalloc
+time_trace = {}
+mem_trace = {}
 import copy
 import inspect
 import warnings
@@ -2856,6 +2859,7 @@ class GenerationMixin:
 
         this_peer_finished = False  # used by synced_gpus only
         # auto-regressive generation
+        index = 0
         while True:
             if synced_gpus:
                 # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
@@ -2866,10 +2870,11 @@ class GenerationMixin:
                 # did all peers finish? the reduced sum will be 0.0 then
                 if this_peer_finished_flag.item() == 0.0:
                     break
-
+            
             # prepare model inputs
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
-
+            t_start = time.perf_counter()
+            tracemalloc.start()
             # forward pass to get next token
             outputs = self(
                 **model_inputs,
@@ -2877,7 +2882,13 @@ class GenerationMixin:
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-
+            snapshot = tracemalloc.take_snapshot()
+            tracemalloc.stop()
+            top_stats = snapshot.statistics('lineno')
+            for stat in top_stats[:1]:  # Change 10 to display more or fewer lines
+                mem.trace[index] = stat.size
+            time_trace[index] = round((time.perf_counter()-t_start)*1000, 2)
+            index = index + 1
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
 
