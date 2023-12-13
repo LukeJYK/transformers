@@ -14,9 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import time
-import tracemalloc
+import json
 time_trace = {}
-mem_trace = {}
+alloc_mem_trace = {}
+cache_mem_trace = {}
 import copy
 import inspect
 import warnings
@@ -26,7 +27,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import torch
 import torch.distributed as dist
 from torch import nn
-
+def get_gpu_memory_usage():
+    return torch.cuda.memory_allocated(), torch.cuda.memory_reserved()
 from ..cache_utils import Cache, DynamicCache
 from ..integrations.deepspeed import is_deepspeed_zero3_enabled
 from ..modeling_outputs import CausalLMOutputWithPast, Seq2SeqLMOutput
@@ -2874,7 +2876,7 @@ class GenerationMixin:
             # prepare model inputs
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
             t_start = time.perf_counter()
-            tracemalloc.start()
+            initial_allocated, initial_cached = get_gpu_memory_usage()
             # forward pass to get next token
             outputs = self(
                 **model_inputs,
@@ -2882,13 +2884,15 @@ class GenerationMixin:
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-            snapshot = tracemalloc.take_snapshot()
-            tracemalloc.stop()
-            top_stats = snapshot.statistics('lineno')
-            for stat in top_stats[:1]:  # Change 10 to display more or fewer lines
-                mem.trace[index] = stat.size
+            final_allocated, final_cached = get_gpu_memory_usage()
+            allocated_diff = final_allocated - initial_allocated
+            cached_diff = final_cached - initial_cached
+            cache_mem_trace[index] = cached_diff
+            alloc_mem_trace[index] = allocated_diff
             time_trace[index] = round((time.perf_counter()-t_start)*1000, 2)
             index = index + 1
+            
+            
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
 
@@ -2915,8 +2919,7 @@ class GenerationMixin:
                         if self.config.is_encoder_decoder
                         else (outputs.hidden_states,)
                     )
-            print("mem trace is:",mem_trace)
-            print("time trace is:",time_trace)
+            
             # sample
             probs = nn.functional.softmax(next_token_scores, dim=-1)
             next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
@@ -2951,7 +2954,13 @@ class GenerationMixin:
 
             if this_peer_finished and not synced_gpus:
                 break
-
+        # print("alloc mem trace is:",alloc_mem_trace)
+        # print("cached mem trace is:",cache_mem_trace)
+        # print("time trace is:",time_trace)
+        with open('/home/jiang.yank/work/llama_exp/data/mem.json', 'w') as json_file:
+                json.dump(alloc_mem_trace, json_file)
+        with open('/home/jiang.yank/work/llama_exp/data/time.json', 'w') as json_file:
+                json.dump(time_trace, json_file)
         if streamer is not None:
             streamer.end()
 
