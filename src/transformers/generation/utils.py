@@ -2860,9 +2860,9 @@ class GenerationMixin:
         time_trace = {}
         alloc_mem_trace = {}
         cache_mem_trace = {}
-        TRACE_SAVE_DIR = "/work/li.baol/GIT/llama_exp/inference_tests/baolin_test/data"#'/home/jiang.yank/work/llama_exp/data/'
-        PROMPT_LEN = 2000
-        TESTCASE = "flash_attn"
+        TRACE_SAVE_DIR = "/home/jiang.yank/work/llama_exp/inference_tests/baolin_test/data"#'/home/jiang.yank/work/llama_exp/data/'
+        PROMPT_LEN = 50
+        TESTCASE = "with_cache"
         # auto-regressive generation
         index = 0
         while True:
@@ -2891,7 +2891,7 @@ class GenerationMixin:
             allocated_diff = final_allocated - initial_allocated
             cached_diff = final_cached - initial_cached
             cache_mem_trace[index] = cached_diff
-            alloc_mem_trace[index] = allocated_diff
+            alloc_mem_trace[index] = final_allocated
             time_trace[index] = round((time.perf_counter()-t_start)*1000, 2)
             index = index + 1
             
