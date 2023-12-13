@@ -15,9 +15,6 @@
 # limitations under the License.
 import time
 import json
-time_trace = {}
-alloc_mem_trace = {}
-cache_mem_trace = {}
 import copy
 import inspect
 import warnings
@@ -2860,6 +2857,12 @@ class GenerationMixin:
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
         this_peer_finished = False  # used by synced_gpus only
+        time_trace = {}
+        alloc_mem_trace = {}
+        cache_mem_trace = {}
+        TRACE_SAVE_DIR = "/work/li.baol/GIT/llama_exp/inference_tests/baolin_test/data"#'/home/jiang.yank/work/llama_exp/data/'
+        PROMPT_LEN = 2000
+        TESTCASE = "flash_attn"
         # auto-regressive generation
         index = 0
         while True:
@@ -2957,10 +2960,10 @@ class GenerationMixin:
         # print("alloc mem trace is:",alloc_mem_trace)
         # print("cached mem trace is:",cache_mem_trace)
         # print("time trace is:",time_trace)
-        with open('/home/jiang.yank/work/llama_exp/data/mem.json', 'w') as json_file:
-                json.dump(alloc_mem_trace, json_file)
-        with open('/home/jiang.yank/work/llama_exp/data/time.json', 'w') as json_file:
-                json.dump(time_trace, json_file)
+        with open(f"{TRACE_SAVE_DIR}/mem_{PROMPT_LEN}_{TESTCASE}.json", 'w') as json_file:
+                json.dump(alloc_mem_trace, json_file, indent=4)
+        with open(f"{TRACE_SAVE_DIR}/time_{PROMPT_LEN}_{TESTCASE}.json", 'w') as json_file:
+                json.dump(time_trace, json_file, indent=4)
         if streamer is not None:
             streamer.end()
 
