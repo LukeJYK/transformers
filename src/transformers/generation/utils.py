@@ -2855,12 +2855,13 @@ class GenerationMixin:
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
         this_peer_finished = False  # used by synced_gpus only
-        enable_meas = False
-        if model_kwargs.get("meas_type") == "total":
-            model_kwargs.pop("meas_type")
-            enable_meas = True
+        if model_kwargs.get("meas_type") == "all":            
             measurement = {"time":[], "mem":[]}
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
+        elif model_kwargs.get("meas_type") == "time":
+            measurement = {"attn": [], "other": []}
+            TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
+
         # auto-regressive generation
         t_start = time.perf_counter()
         while True:
@@ -2873,10 +2874,14 @@ class GenerationMixin:
                 # did all peers finish? the reduced sum will be 0.0 then
                 if this_peer_finished_flag.item() == 0.0:
                     break
-            if enable_meas:
-                t_start = time.perf_counter()
             # prepare model inputs
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+            # added measurement related to attention time
+            if model_kwargs.get("meas_type") == "time":
+                model_inputs.update({"measurement": measurement})
+
+            if model_kwargs.get("meas_type") == "all":
+                t_start = time.perf_counter()
             # forward pass to get next token
             outputs = self(
                 **model_inputs,
@@ -2884,9 +2889,11 @@ class GenerationMixin:
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-            if enable_meas:
+            if model_kwargs.get("meas_type") == "all":
                 measurement["time"].append(round((time.perf_counter()-t_start)*1000, 2))
                 measurement["mem"].append(torch.cuda.memory_allocated()/1024/1024) # MB
+            elif model_kwargs.get("meas_type") == "time":
+                measurement = model_inputs["measurement"]
             
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
@@ -2949,7 +2956,7 @@ class GenerationMixin:
 
             if this_peer_finished and not synced_gpus:
                 break
-        if enable_meas:
+        if model_kwargs.get("meas_type"):
             with open(f"{TRACE_SAVE_DIR}.json", 'w') as json_file:
                     json.dump(measurement, json_file, indent=4)
         if streamer is not None:

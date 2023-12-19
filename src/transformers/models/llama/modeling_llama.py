@@ -767,6 +767,7 @@ class LlamaDecoderLayer(nn.Module):
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = False,
+        measurement: Optional[dict] = None,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
@@ -790,8 +791,10 @@ class LlamaDecoderLayer(nn.Module):
 
         residual = hidden_states
 
-        hidden_states = self.input_layernorm(hidden_states)
-
+        hidden_states = self.input_layernorm(hidden_states)        
+        if measurement:            
+            import time        
+            t_start = time.perf_counter()
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
             hidden_states=hidden_states,
@@ -802,6 +805,8 @@ class LlamaDecoderLayer(nn.Module):
             use_cache=use_cache,
             **kwargs,
         )
+        if measurement:
+            t_end = time.perf_counter()
         hidden_states = residual + hidden_states
 
         # Fully Connected
@@ -817,6 +822,11 @@ class LlamaDecoderLayer(nn.Module):
 
         if use_cache:
             outputs += (present_key_value,)
+
+        if measurement:
+            measurement["other"][-1].append((time.perf_counter() - t_end)*1000)
+            measurement["attn"][-1].append((t_end - t_start)*1000)            
+
 
         return outputs
 
@@ -981,6 +991,7 @@ class LlamaModel(LlamaPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        measurement: Optional[dict] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -1050,6 +1061,11 @@ class LlamaModel(LlamaPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
+        if measurement:
+            measurement["attn"].append([])
+            measurement["other"].append([])
+            import numpy as np
+
         for decoder_layer in self.layers:
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -1072,6 +1088,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     past_key_value=past_key_values,
                     output_attentions=output_attentions,
                     use_cache=use_cache,
+                    measurement=measurement
                 )
 
             hidden_states = layer_outputs[0]
@@ -1081,6 +1098,10 @@ class LlamaModel(LlamaPreTrainedModel):
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
+                
+        if measurement:
+            measurement["attn"][-1] = round(np.mean(measurement["attn"][-1]), 3)
+            measurement["other"][-1] = round(np.mean(measurement["other"][-1]), 3)
 
         hidden_states = self.norm(hidden_states)
 
@@ -1145,6 +1166,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        measurement: Optional[dict] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
         Args:
@@ -1188,6 +1210,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
+            measurement=measurement
         )
 
         # hidden_states = outputs[0]
@@ -1273,7 +1296,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             model_inputs = {"inputs_embeds": inputs_embeds}
         else:
             model_inputs = {"input_ids": input_ids}
-
+            
         model_inputs.update(
             {
                 "position_ids": position_ids,
