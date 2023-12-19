@@ -24,8 +24,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Un
 import torch
 import torch.distributed as dist
 from torch import nn
-def get_gpu_memory_usage():
-    return torch.cuda.memory_allocated(), torch.cuda.memory_reserved()
 from ..cache_utils import Cache, DynamicCache
 from ..integrations.deepspeed import is_deepspeed_zero3_enabled
 from ..modeling_outputs import CausalLMOutputWithPast, Seq2SeqLMOutput
@@ -1368,7 +1366,7 @@ class GenerationMixin:
                 model_args |= {"assistant_encoder_outputs"}
 
         for key, value in model_kwargs.items():
-            if value is not None and key not in model_args:
+            if value is not None and key not in model_args and key not in ["meas_type", "meas_path"]:
                 unused_model_args.append(key)
 
         if unused_model_args:
@@ -2857,14 +2855,14 @@ class GenerationMixin:
         unfinished_sequences = torch.ones(input_ids.shape[0], dtype=torch.long, device=input_ids.device)
 
         this_peer_finished = False  # used by synced_gpus only
-        time_trace = {}
-        alloc_mem_trace = {}
-        cache_mem_trace = {}
-        TRACE_SAVE_DIR = "/home/jiang.yank/work/llama_exp/inference_tests/baolin_test/data"#'/home/jiang.yank/work/llama_exp/data/'
-        PROMPT_LEN = 50
-        TESTCASE = "with_cache"
+        enable_meas = False
+        if model_kwargs.get("meas_type") == "total":
+            model_kwargs.pop("meas_type")
+            enable_meas = True
+            measurement = {"time":[], "mem":[]}
+            TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
         # auto-regressive generation
-        index = 0
+        t_start = time.perf_counter()
         while True:
             if synced_gpus:
                 # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
@@ -2875,11 +2873,10 @@ class GenerationMixin:
                 # did all peers finish? the reduced sum will be 0.0 then
                 if this_peer_finished_flag.item() == 0.0:
                     break
-            
+            if enable_meas:
+                t_start = time.perf_counter()
             # prepare model inputs
             model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
-            t_start = time.perf_counter()
-            initial_allocated, initial_cached = get_gpu_memory_usage()
             # forward pass to get next token
             outputs = self(
                 **model_inputs,
@@ -2887,14 +2884,9 @@ class GenerationMixin:
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-            final_allocated, final_cached = get_gpu_memory_usage()
-            allocated_diff = final_allocated - initial_allocated
-            cached_diff = final_cached - initial_cached
-            cache_mem_trace[index] = cached_diff
-            alloc_mem_trace[index] = final_allocated
-            time_trace[index] = round((time.perf_counter()-t_start)*1000, 2)
-            index = index + 1
-            
+            if enable_meas:
+                measurement["time"].append(round((time.perf_counter()-t_start)*1000, 2))
+                measurement["mem"].append(torch.cuda.memory_allocated()/1024/1024) # MB
             
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
@@ -2957,13 +2949,9 @@ class GenerationMixin:
 
             if this_peer_finished and not synced_gpus:
                 break
-        # print("alloc mem trace is:",alloc_mem_trace)
-        # print("cached mem trace is:",cache_mem_trace)
-        # print("time trace is:",time_trace)
-        with open(f"{TRACE_SAVE_DIR}/mem_{PROMPT_LEN}_{TESTCASE}.json", 'w') as json_file:
-                json.dump(alloc_mem_trace, json_file, indent=4)
-        with open(f"{TRACE_SAVE_DIR}/time_{PROMPT_LEN}_{TESTCASE}.json", 'w') as json_file:
-                json.dump(time_trace, json_file, indent=4)
+        if enable_meas:
+            with open(f"{TRACE_SAVE_DIR}.json", 'w') as json_file:
+                    json.dump(measurement, json_file, indent=4)
         if streamer is not None:
             streamer.end()
 
