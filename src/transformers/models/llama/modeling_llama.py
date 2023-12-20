@@ -1064,7 +1064,6 @@ class LlamaModel(LlamaPreTrainedModel):
         if measurement:
             measurement["attn"].append([])
             measurement["other"].append([])
-            import numpy as np
 
         for decoder_layer in self.layers:
             if output_hidden_states:
@@ -1100,8 +1099,8 @@ class LlamaModel(LlamaPreTrainedModel):
                 all_self_attns += (layer_outputs[1],)
                 
         if measurement:
-            measurement["attn"][-1] = round(np.mean(measurement["attn"][-1]), 3)
-            measurement["other"][-1] = round(np.mean(measurement["other"][-1]), 3)
+            measurement["attn"][-1] = round(sum(measurement["attn"][-1]), 3)
+            measurement["other"][-1] = round(sum(measurement["other"][-1]), 3)
 
         hidden_states = self.norm(hidden_states)
 
