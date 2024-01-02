@@ -2858,6 +2858,14 @@ class GenerationMixin:
         if model_kwargs.get("meas_type") == "all":            
             measurement = {"time":[], "mem":[]}
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
+        elif model_kwargs.get("meas_type") == "energy":
+            from carbontracker.tracker import CarbonTrackerManual
+            measurement = {"energy_kWh":[], "duration_s":[]}
+            TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
+            tracker = CarbonTrackerManual(epochs=1, monitor_epochs=1, update_interval=0.005,
+                components='all', epochs_before_pred=1, verbose=0)
+            tracker.tracker.pue_manual=1
+            tracker.intensity_updater.ci_manual = 100
         elif model_kwargs.get("meas_type") == "time":
             measurement = {"attn": [], "other": []}
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
@@ -2882,6 +2890,8 @@ class GenerationMixin:
 
             if model_kwargs.get("meas_type") == "all":
                 t_start = time.perf_counter()
+            elif model_kwargs.get("meas_type") == "energy":
+                tracker.epoch_start()
             # forward pass to get next token
             outputs = self(
                 **model_inputs,
@@ -2892,6 +2902,10 @@ class GenerationMixin:
             if model_kwargs.get("meas_type") == "all":
                 measurement["time"].append(round((time.perf_counter()-t_start)*1000, 2))
                 measurement["mem"].append(torch.cuda.memory_allocated()/1024/1024) # MB
+            elif model_kwargs.get("meas_type") == "energy":
+                energy, _, duration = tracker.epoch_end('')
+                measurement["energy_kWh"].append(energy)
+                measurement["duration_s"].append(duration)
             elif model_kwargs.get("meas_type") == "time":
                 measurement = model_inputs["measurement"]
             
