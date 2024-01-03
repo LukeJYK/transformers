@@ -2862,7 +2862,7 @@ class GenerationMixin:
             from carbontracker.tracker import CarbonTrackerManual
             measurement = {"energy_kWh":[], "duration_s":[]}
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
-            tracker = CarbonTrackerManual(epochs=1, monitor_epochs=1, update_interval=0.005,
+            tracker = CarbonTrackerManual(epochs=1, monitor_epochs=1, update_interval=0.002,
                 components='all', epochs_before_pred=1, verbose=0)
             tracker.tracker.pue_manual=1
             tracker.intensity_updater.ci_manual = 100
