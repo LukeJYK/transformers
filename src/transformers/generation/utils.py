@@ -2860,9 +2860,9 @@ class GenerationMixin:
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
         elif model_kwargs.get("meas_type") == "energy":
             from carbontracker.tracker import CarbonTrackerManual
-            measurement = {"energy_kWh":[], "duration_s":[]}
+            measurement = {"energy_kWh_10_iter":[], "duration_s_10_iter":[]}
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
-            tracker = CarbonTrackerManual(epochs=1, monitor_epochs=1, update_interval=0.002,
+            tracker = CarbonTrackerManual(epochs=1, monitor_epochs=1, update_interval=0.005,
                 components='all', epochs_before_pred=1, verbose=0)
             tracker.tracker.pue_manual=1
             tracker.intensity_updater.ci_manual = 100
@@ -2870,6 +2870,7 @@ class GenerationMixin:
             measurement = {"attn": [], "other": []}
             TRACE_SAVE_DIR = model_kwargs.pop("meas_path")
 
+        iteration = 0
         # auto-regressive generation
         t_start = time.perf_counter()
         while True:
@@ -2890,7 +2891,7 @@ class GenerationMixin:
 
             if model_kwargs.get("meas_type") == "all":
                 t_start = time.perf_counter()
-            elif model_kwargs.get("meas_type") == "energy":
+            elif model_kwargs.get("meas_type") == "energy" and iteration % 10 == 1 or iteration == 0: # measure every 10 iterations
                 tracker.epoch_start()
             # forward pass to get next token
             outputs = self(
@@ -2902,12 +2903,13 @@ class GenerationMixin:
             if model_kwargs.get("meas_type") == "all":
                 measurement["time"].append(round((time.perf_counter()-t_start)*1000, 2))
                 measurement["mem"].append(torch.cuda.memory_allocated()/1024/1024) # MB
-            elif model_kwargs.get("meas_type") == "energy":
+            elif model_kwargs.get("meas_type") == "energy" and iteration % 10 == 0:
                 energy, _, duration = tracker.epoch_end('')
-                measurement["energy_kWh"].append(energy)
-                measurement["duration_s"].append(duration)
+                measurement["energy_kWh_10_iter"].append(energy)
+                measurement["duration_s_10_iter"].append(duration)                
             elif model_kwargs.get("meas_type") == "time":
                 measurement = model_inputs["measurement"]
+            iteration += 1
             
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
