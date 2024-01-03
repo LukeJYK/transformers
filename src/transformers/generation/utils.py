@@ -2971,6 +2971,8 @@ class GenerationMixin:
                 this_peer_finished = True
 
             if this_peer_finished and not synced_gpus:
+                if model_kwargs.get("meas_type") == "energy" and iteration % 10 != 0:
+                    tracker.epoch_end('') # shut down the tracker
                 break
         if model_kwargs.get("meas_type"):
             with open(f"{TRACE_SAVE_DIR}.json", 'w') as json_file:
