@@ -2891,7 +2891,7 @@ class GenerationMixin:
 
             if model_kwargs.get("meas_type") == "all":
                 t_start = time.perf_counter()
-            elif model_kwargs.get("meas_type") == "energy" and iteration % 10 == 1 or iteration == 0: # measure every 10 iterations
+            elif model_kwargs.get("meas_type") == "energy" and (iteration % 10 == 1 or iteration == 0): # measure every 10 iterations
                 tracker.epoch_start()
             # forward pass to get next token
             outputs = self(
